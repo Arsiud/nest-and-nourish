@@ -1,0 +1,15 @@
+{
+  "name": "Nest & Nourish",
+  "short_name": "Nest & Nourish",
+  "description": "Meal trains for new moms, where she picks the menu.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fbf7f1",
+  "theme_color": "#5f7f62",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
