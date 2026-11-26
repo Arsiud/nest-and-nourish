@@ -112,6 +112,15 @@ legend { font-weight: 600; font-size: 0.95rem; margin-bottom: 6px; padding: 0; }
   font-weight: 500; font-size: 0.925rem; cursor: pointer; background: var(--surface);
 }
 .chip input:checked + span { background: var(--sage); color: var(--sage-ink); border-color: var(--sage); }
+/* An empty circle when off, a check mark when on, so the choice doesn't rely on color alone. */
+.chip span::before {
+  content: ""; display: inline-block; width: 16px; height: 16px; margin: 0 7px -3px 0;
+  border: 1.5px solid var(--muted); border-radius: 50%; box-sizing: border-box;
+}
+.chip input:checked + span::before {
+  content: "✓"; border-color: var(--sage-ink); background: var(--sage-ink); color: var(--sage);
+  font-size: 11px; font-weight: 800; line-height: 13px; text-align: center;
+}
 .chip input:focus-visible + span { outline: 2px solid var(--sage); outline-offset: 2px; }
 .tag { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.8rem; background: var(--sunk); margin: 2px 0; }
 .tag.goal { background: var(--clay-soft); }
