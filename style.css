@@ -207,3 +207,38 @@ dialog .confirm { font-size: 1.05rem; padding-right: 30px; }
   .slot { grid-template-columns: 5.2rem 1fr auto; gap: 8px; }
   .row { flex-direction: column; gap: 14px; }
 }
+
+/* Month calendar: a bin per meal, filled in its color once someone signs up. */
+.months { padding: 12px; }
+.month + .month { margin-top: 16px; }
+.month h3 { margin: 0 0 8px 2px; }
+.mgrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.wday { text-align: center; font-size: 0.75rem; color: var(--muted); font-weight: 600; }
+.mday {
+  position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 4px;
+  min-height: 52px; padding: 5px 2px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 0.85rem;
+}
+.mday.blank { border: 0; background: none; }
+.mday.out { border: 0; background: none; color: var(--muted); opacity: 0.4; justify-content: center; }
+.mday.past { opacity: 0.55; }
+.mday.today { border-color: var(--sage); box-shadow: 0 0 0 1px var(--sage); }
+.mday.picked { background: var(--sage-soft); border-color: var(--sage); }
+.mday .num { font-weight: 600; line-height: 1; }
+.bins { display: flex; gap: 2px; }
+.bin { display: inline-block; width: 10px; height: 14px; border-radius: 3px; border: 1.5px solid var(--muted); box-sizing: border-box; }
+.bin.full { border-color: transparent; }
+.bin.full.slot-breakfast { background: #e2b54f; }
+.bin.full.slot-lunch { background: #6fa36b; }
+.bin.full.slot-dinner { background: #9b6fb0; }
+.bin.off { border-style: dashed; opacity: 0.35; }
+.mday .box { position: absolute; top: 1px; right: 2px; font-size: 0.6rem; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.8rem; color: var(--muted); margin: 10px 2px 0; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+
+.hint { display: block; font-weight: 400; font-size: 0.825rem; color: var(--muted); margin-top: 4px; }
+.slot-buttons { display: flex; gap: 6px; }
+.slot .dropoff { display: block; color: var(--clay); font-size: 0.85rem; }
+.arriving { font-size: 0.875rem; background: var(--clay-soft); border-radius: 8px; padding: 6px 10px; margin: 6px 0 2px; }
+.tag.quick { background: var(--sage-soft); }
+.tag.flavor { background: var(--warn); color: var(--warn-ink); }
+.dish-option .tag { margin-top: 4px; margin-right: 6px; }

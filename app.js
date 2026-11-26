@@ -11,7 +11,7 @@
 // day and meal, and pick a dish offered for that meal time.
 
 import { openStore } from "./store.js";
-import { DIETS, GOALS, SLOTS, MEALS, suggest, avoidHits, slotOrder } from "./meals.js";
+import { DIETS, GOALS, FLAVORS, SLOTS, MEALS, suggest, avoidHits, slotOrder } from "./meals.js";
 
 const store = await openStore();
 const app = document.getElementById("app");
@@ -76,6 +76,7 @@ function prefsSummary(prefs = {}) {
   const parts = [
     ...DIETS.filter((d) => prefs.diet?.includes(d.id)).map((d) => d.label),
     ...GOALS.filter((g) => prefs.goals?.includes(g.id)).map((g) => g.label),
+    ...FLAVORS.filter((f) => prefs.flavors?.includes(f.id)).map((f) => `Loves ${f.label.toLowerCase()}`),
   ];
   if (prefs.avoid?.trim()) parts.push(`Avoid: ${prefs.avoid.trim()}`);
   return parts;
@@ -227,6 +228,7 @@ function newView() {
         </div>
         <fieldset><legend>Meals she needs</legend>
           ${chips(SLOTS, ["breakfast", "lunch", "dinner"], "slots")}
+          <span class="hint">Tap one to turn it off for the whole train, like no lunches. Later she can skip single meals or days on the calendar.</span>
         </fieldset>
         <button class="primary">Create the food train</button>
       </form>
@@ -295,7 +297,11 @@ function calendarTab() {
     if (byKey.has(key)) covered++;
   }
 
-  const rows = shown.map((day) => {
+  // Meals being dropped off early on a day (freezer meals and the like), by drop-off day.
+  const early = new Map();
+  for (const su of signups) if (su.dropoff && su.dropoff !== su.id.split("_")[0]) early.set(su.dropoff, [...(early.get(su.dropoff) || []), su]);
+
+  const rows = (S.pickedDay ? [S.pickedDay] : shown).map((day) => {
     const dayClosed = (t.closed || []).includes(day);
     const cells = slots.map((s) => {
       const key = `${day}_${s.id}`;
@@ -303,22 +309,27 @@ function calendarTab() {
       const closed = isClosed(t, key);
       if (S.openOnly && (su || closed)) return "";
       const time = t.times?.[s.id] ? `<span class="time">${esc(t.times[s.id])}</span>` : "";
-      if (closed && !su) return `<div class="slot closed"><span class="slot-name">${s.label}${time}</span><span class="status">Not needed</span>
-        ${org && !dayClosed ? `<button class="small" data-action="reopen-slot" data-key="${key}">Reopen</button>` : ""}</div>`;
+      if (closed && !su) return `<div class="slot closed"><span class="slot-name">${s.label}${time}</span><span class="status">Skipped</span>
+        ${org && !dayClosed ? `<button class="small" data-action="reopen-slot" data-key="${key}">Undo</button>` : ""}</div>`;
       if (su) {
         const mine = su.uid === S.me?.uid;
         return `<div class="slot filled ${mine ? "mine" : ""}"><span class="slot-name">${s.label}${time}</span>
-          <span class="status"><strong>${esc(su.name)}</strong> is bringing ${esc(su.dishName)}${su.note ? `<em>“${esc(su.note)}”</em>` : ""}</span>
+          <span class="status"><strong>${esc(su.name)}</strong> is bringing ${esc(su.dishName)}${su.dropoff && su.dropoff !== day ? `<span class="dropoff">Dropping off early: ${esc(longDay(su.dropoff))}</span>` : ""}${su.note ? `<em>“${esc(su.note)}”</em>` : ""}</span>
           ${mine || org ? `<button class="small" data-action="signup" data-key="${key}">${mine ? "Change" : "Manage"}</button>` : ""}</div>`;
       }
       return `<div class="slot open"><span class="slot-name">${s.label}${time}</span><span class="status">Open</span>
-        <button class="small primary" data-action="signup" data-key="${key}">Sign up</button></div>`;
+        <span class="slot-buttons">${org ? `<button class="small" data-action="close-slot" data-key="${key}">Skip</button>` : ""}<button class="small primary" data-action="signup" data-key="${key}">Sign up</button></span></div>`;
     }).join("");
-    if (S.openOnly && !cells) return "";
-    return `<section class="day ${day === now ? "today" : ""} ${dayClosed ? "day-closed" : ""}">
+    const arriving = (early.get(day) || []).map((su) => {
+      const [d2, s2] = su.id.split("_");
+      return `<p class="arriving">📦 ${esc(su.name)} drops off ${esc(su.dishName)} for ${esc(shortDate(d2))} ${slotLabel(s2).toLowerCase()}</p>`;
+    }).join("");
+    if (S.openOnly && !cells && !S.pickedDay) return "";
+    return `<section class="day ${day === now ? "today" : ""} ${dayClosed ? "day-closed" : ""}" id="day-${day}">
       <header><h3>${esc(longDay(day))}${day === now ? ' <span class="badge">Today</span>' : ""}</h3>
         ${org ? `<button class="link" data-action="toggle-day" data-day="${day}">${dayClosed ? "Reopen day" : "Skip day"}</button>` : ""}</header>
-      ${dayClosed && !org && !cells.includes("filled") ? `<p class="muted small">No meals needed this day.</p>` : cells}
+      ${dayClosed && !org && !cells.includes("filled") ? `<p class="muted small">Skipped: no meals needed this day.</p>` : cells}
+      ${arriving}
     </section>`;
   }).join("");
 
@@ -326,10 +337,47 @@ function calendarTab() {
   return `
     ${noMenu ? `<div class="banner">${org ? `The menu is empty. <a href="#/t/${esc(S.route.id)}/menu">Build her menu</a> so helpers have dishes to choose from.` : "The menu isn't ready yet. Check back soon!"}</div>` : ""}
     <div class="progress"><div style="width:${total ? Math.round((covered / total) * 100) : 0}%"></div></div>
-    <div class="cal-bar"><span><strong>${covered}</strong> of ${total} meals covered</span>
+    <div class="cal-bar"><span><strong>${covered}</strong> of ${total} meals covered</span></div>
+    ${slots.length ? monthGrid(t, slots, byKey, early) : ""}
+    ${S.pickedDay ? `<div class="cal-bar"><strong>${esc(longDay(S.pickedDay))}</strong><button class="link" data-action="pick-day" data-day="">Show all days</button></div>` : `
+    <div class="cal-bar"><span class="muted small">Tap a day to see its meals.</span>
       <label class="toggle"><input type="checkbox" data-action="open-only" ${S.openOnly ? "checked" : ""}> Open meals only</label></div>
-    ${past.length && !S.showPast ? `<button class="link past" data-action="show-past">Show ${past.length} past day${past.length > 1 ? "s" : ""}</button>` : ""}
+    ${past.length && !S.showPast ? `<button class="link past" data-action="show-past">Show ${past.length} past day${past.length > 1 ? "s" : ""}</button>` : ""}`}
     ${!slots.length ? `<p class="muted">No meal times are turned on. ${org ? "Choose them in Details." : ""}</p>` : rows || `<p class="muted">Every meal is covered. Thank you!</p>`}`;
+}
+
+// A month-view calendar: each day has a little bin for each meal, filled in its color once someone signs up.
+function monthGrid(t, slots, byKey, early) {
+  const days = daysOf(t);
+  const now = today();
+  const inRange = new Set(days);
+  const months = [...new Set(days.map((d) => d.slice(0, 7)))];
+  const weekdays = Array.from({ length: 7 }, (_, i) => new Date(2023, 0, 1 + i).toLocaleDateString(undefined, { weekday: "narrow" }));
+  const grids = months.map((ym) => {
+    const [y, m] = ym.split("-").map(Number);
+    const first = new Date(y, m - 1, 1), count = new Date(y, m, 0).getDate();
+    const cells = Array.from({ length: first.getDay() }, () => `<span class="mday blank"></span>`);
+    const live = cells.map(() => false);   // which cells are train days, to leave out weeks without any
+    for (let n = 1; n <= count; n++) {
+      const day = `${ym}-${String(n).padStart(2, "0")}`;
+      live.push(inRange.has(day));
+      if (!inRange.has(day)) { cells.push(`<span class="mday out">${n}</span>`); continue; }
+      const bins = slots.map((s) => {
+        const key = `${day}_${s.id}`;
+        const state = byKey.has(key) ? `full slot-${s.id}` : isClosed(t, key) ? "off" : "empty";
+        const what = byKey.has(key) ? `${s.label} taken` : isClosed(t, key) ? `${s.label} skipped` : `${s.label} open`;
+        return `<i class="bin ${state}" title="${what}"></i>`;
+      }).join("");
+      const label = `${longDay(day)}: ${slots.map((s) => byKey.has(`${day}_${s.id}`) ? `${s.label} taken` : isClosed(t, `${day}_${s.id}`) ? `${s.label} skipped` : `${s.label} open`).join(", ")}`;
+      cells.push(`<button class="mday ${day === now ? "today" : ""} ${day === S.pickedDay ? "picked" : ""} ${day < now ? "past" : ""}" data-action="pick-day" data-day="${day}" aria-label="${esc(label)}">
+        <span class="num">${n}</span><span class="bins">${bins}</span>${early.has(day) ? `<span class="box" title="Early drop-off">📦</span>` : ""}</button>`);
+    }
+    return `<div class="month"><h3>${first.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</h3>
+      <div class="mgrid">${weekdays.map((w) => `<span class="wday">${w}</span>`).join("")}${
+        cells.filter((_, i) => live.slice(i - (i % 7), i - (i % 7) + 7).some(Boolean)).join("")}</div></div>`;
+  }).join("");
+  return `<section class="card months">${grids}
+    <p class="legend">${slots.map((s) => `<span><i class="bin full slot-${s.id}"></i>${s.label}</span>`).join("")}<span><i class="bin empty"></i>Open</span></p></section>`;
 }
 
 function menuTab() {
@@ -435,14 +483,16 @@ function signupSheet(key) {
       ${dietBanner(t)}
       ${options.length ? `<fieldset class="dish-pick"><legend>Pick a dish from her menu</legend>
         ${options.map((d) => `<label class="dish-option"><input type="radio" name="dish" value="${esc(d.id)}" required ${su?.dishId === d.id ? "checked" : ""}>
-          <span><strong>${esc(d.name)}</strong>${d.desc ? `<span class="desc">${esc(d.desc)}</span>` : ""}${used(d.id) ? `<span class="used">already coming ${used(d.id)}×</span>` : ""}</span></label>`).join("")}
+          <span><strong>${esc(d.name)}</strong>${d.desc ? `<span class="desc">${esc(d.desc)}</span>` : ""}${d.goals?.includes("q") ? `<span class="tag quick">Quick to make</span>` : ""}${used(d.id) ? `<span class="used">already coming ${used(d.id)}×</span>` : ""}</span></label>`).join("")}
         </fieldset>` : `<p class="muted">She hasn't added any ${slotLabel(slot).toLowerCase()} dishes yet.${org ? ` <a href="#/t/${esc(S.route.id)}/menu">Add some</a>.` : ""}</p>`}
       ${options.length ? `
         <label>Your name<input name="name" required maxlength="60" autocomplete="name" value="${esc(su?.name || local.get("name", "") || S.me?.name || "")}"></label>
+        <label>Drop-off day<input type="date" name="dropoff" required max="${day}" min="${[today(), su?.dropoff || day].sort()[0]}" value="${su?.dropoff || day}">
+          <span class="hint">Can't make it that day, or bringing a freezer meal? Pick an earlier day to drop it off.</span></label>
         <label>Note for her (optional)<textarea name="note" maxlength="500" rows="2" placeholder="e.g. I'll text when I'm on the way">${esc(su?.note || "")}</textarea></label>
         <div class="actions">${mine ? `<button type="button" class="danger-btn" data-action="cancel-signup" data-key="${key}">Cancel my sign-up</button>` : ""}
           <button class="primary">${mine ? "Save" : "Sign up"}</button></div>` : ""}
-      ${org && !su ? `<p class="center"><button type="button" class="link" data-action="close-slot" data-key="${key}">Mark this meal as not needed</button></p>` : ""}
+      ${org && !su ? `<p class="center"><button type="button" class="link" data-action="close-slot" data-key="${key}">Skip this meal</button></p>` : ""}
     </form>`);
 }
 
@@ -468,6 +518,7 @@ function prefsSheet(thenSuggest) {
       <h2>Her preferences</h2>
       <fieldset><legend>Diet and allergies</legend>${chips(DIETS, p.diet || [], "diet")}</fieldset>
       <label>Other foods to avoid<input name="avoid" maxlength="200" value="${esc(p.avoid || "")}" placeholder="e.g. onions, mushrooms, spicy"></label>
+      <fieldset><legend>Flavors she loves</legend>${chips(FLAVORS, p.flavors || [], "flavors")}</fieldset>
       <fieldset><legend>What she'd like more of</legend>${chips(GOALS, p.goals || [], "goals")}</fieldset>
       <div class="actions"><button class="primary">${thenSuggest ? "Save and see suggestions" : "Save"}</button></div>
     </form>`);
@@ -488,7 +539,7 @@ function renderSuggest() {
     <div class="filters">${filter("all", "All")}${SLOTS.map((s) => filter(s.id, s.label)).join("")}</div>
     ${list.length ? `<ul class="suggestions">${list.map((m) => `<li class="${added.has(m.id) ? "added" : ""}">
       <div><strong>${esc(m.name)}</strong><span class="desc">${esc(m.desc)}</span>
-        <span class="meta">${slotTags(m.slots)}${m.matched.map((g) => `<span class="tag goal">${goalLabel(g)}</span>`).join("")}</span></div>
+        <span class="meta">${slotTags(m.slots)}${m.tasty.map((f) => `<span class="tag flavor">${FLAVORS.find((x) => x.id === f).label}</span>`).join("")}${m.matched.map((g) => `<span class="tag goal">${goalLabel(g)}</span>`).join("")}</span></div>
       <button class="small ${added.has(m.id) ? "" : "primary"}" data-action="suggest-toggle" data-lib="${m.id}" aria-pressed="${added.has(m.id)}">${added.has(m.id) ? "Added ✓" : "Add"}</button>
     </li>`).join("")}</ul>` : `<p class="muted">Nothing in the library fits all of her preferences. Try loosening them, or add her own dishes.</p>`}`;
   if (S.sheet?.kind === "suggest") {
@@ -504,6 +555,7 @@ function detailsSheet() {
     <form data-form="details" class="stack">
       <h2>Drop-off details</h2>
       <label>Address<textarea name="address" rows="2" maxlength="300" placeholder="Street, city">${esc(t.address || "")}</textarea></label>
+      <button type="button" class="small" data-action="use-location">📍 Use my current location</button>
       <p class="muted small">Anyone with the share link can see this.</p>
       ${activeSlots(t).map((s) => `<label>${s.label} drop-off time<input name="time-${s.id}" maxlength="40" value="${esc(t.times?.[s.id] || "")}" placeholder="${s.id === "breakfast" ? "e.g. 8–9 am" : s.id === "lunch" ? "e.g. 11:30–12:30" : "e.g. 5–6 pm"}"></label>`).join("")}
       <label>Feeding how many?<input name="household" maxlength="80" value="${esc(t.household || "")}" placeholder="e.g. 2 adults, a toddler"></label>
@@ -569,7 +621,7 @@ const actions = {
     await store.unclaim(id(), el.dataset.key);
     toast(mine ? "Your sign-up was cancelled" : "Sign-up removed");
   },
-  "close-slot": async (el) => { await setClosed((c) => c.add(el.dataset.key)); sheet.close(); },
+  "close-slot": async (el) => { await setClosed((c) => c.add(el.dataset.key)); if (sheet.open) sheet.close(); },
   "reopen-slot": (el) => setClosed((c) => c.delete(el.dataset.key)),
   "toggle-day": (el) => setClosed((c) => {
     const day = el.dataset.day;
@@ -577,6 +629,27 @@ const actions = {
     else { c.add(day); SLOTS.forEach((s) => c.delete(`${day}_${s.id}`)); }
   }),
   "show-past": () => { S.showPast = true; render(); },
+  "pick-day": (el) => {
+    S.pickedDay = el.dataset.day && el.dataset.day !== S.pickedDay ? el.dataset.day : null;
+    render();
+    if (S.pickedDay) document.getElementById(`day-${S.pickedDay}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  },
+  // Fills the address from the phone's location: GPS position, then OpenStreetMap turns it into a street address.
+  "use-location": async (el) => {
+    const box = sheet.querySelector("[name=address]");
+    if (!navigator.geolocation || !isSecureContext) throw new Error("Location only works on the secure (https) site.");
+    el.textContent = "Finding you…";
+    try {
+      const pos = await new Promise((ok, fail) => navigator.geolocation.getCurrentPosition(ok, fail, { enableHighAccuracy: true, timeout: 15000 }));
+      const { latitude: lat, longitude: lon } = pos.coords;
+      box.value = await streetAddress(lat, lon).catch(() => `${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+      toast("Check the address, then Save");
+    } catch (e) {
+      if (e.code === 1) throw new Error("Location is turned off for this site. Allow it in your phone's settings, or type the address.");
+      if (e.code) throw new Error("Couldn't find your location. Try again outside, or type the address.");
+      throw e;
+    } finally { el.textContent = "📍 Use my current location"; }
+  },
   "open-only": (el) => { S.openOnly = el.checked; render(); },
   "menu-slot": (el) => { S.menuSlot = el.dataset.slot; render(); },
   "add-dish": () => dishSheet(null),
@@ -631,7 +704,15 @@ const actions = {
   },
   "close-sheet": () => sheet.close(),
 };
-const addFromLibrary = (m) => store.saveDish(id(), { name: m.name, desc: m.desc, slots: m.slots, libraryId: m.id, goals: m.goals });
+async function streetAddress(lat, lon) {
+  const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&lat=${lat}&lon=${lon}`, { headers: { "Accept-Language": navigator.language } });
+  const a = (await r.json()).address;
+  if (!a) throw new Error("no address");
+  const street = [a.house_number, a.road].filter(Boolean).join(" ");
+  const town = a.city || a.town || a.village || a.hamlet || a.suburb || "";
+  return [street, town, [a.state, a.postcode].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+}
+const addFromLibrary = (m) => store.saveDish(id(), { name: m.name, desc: m.desc, slots: m.slots, libraryId: m.id, goals: m.goals, flavors: m.flavors });
 
 function afterSignIn() {
   if (S.me?.name) local.set("name", local.get("name", "") || S.me.name);
@@ -674,7 +755,10 @@ const forms = {
     const name = f.name.value.trim();
     local.set("name", name);
     const was = S.data.signups.some((s) => s.id === f.dataset.key);
-    await store.claim(id(), f.dataset.key, { name, dishId: dish.id, dishName: dish.name, note: f.note.value.trim() });
+    const day = f.dataset.key.split("_")[0];
+    const dropoff = f.dropoff.value || day;
+    if (dropoff > day) throw new Error("The drop-off day can't be after the meal.");
+    await store.claim(id(), f.dataset.key, { name, dishId: dish.id, dishName: dish.name, note: f.note.value.trim(), dropoff });
     sheet.close();
     toast(was ? "Saved" : `Thank you, ${name}! You're on the calendar.`);
   },
@@ -691,8 +775,9 @@ const forms = {
   },
   prefs: async (f) => {
     const fd = new FormData(f);
-    await store.updateTrain(id(), { prefs: { diet: fd.getAll("diet"), goals: fd.getAll("goals"), avoid: fd.get("avoid").trim() } });
-    if (f.dataset.then === "suggest") { S.sheet = null; sheet.close(); S.data.train.prefs = { diet: fd.getAll("diet"), goals: fd.getAll("goals"), avoid: fd.get("avoid").trim() }; renderSuggest(); }
+    const prefs = { diet: fd.getAll("diet"), flavors: fd.getAll("flavors"), goals: fd.getAll("goals"), avoid: fd.get("avoid").trim() };
+    await store.updateTrain(id(), { prefs });
+    if (f.dataset.then === "suggest") { S.sheet = null; sheet.close(); S.data.train.prefs = prefs; renderSuggest(); }
     else { sheet.close(); toast("Preferences saved"); }
   },
   details: async (f) => {
