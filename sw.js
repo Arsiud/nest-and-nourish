@@ -1,6 +1,6 @@
 // Caches the app so it opens quickly and offline. Bump VERSION when files change.
 // Other apps share this site (arsiud.github.io), so only caches named "nn-" are ours to clear.
-const VERSION = "nn-v10";
+const VERSION = "nn-v11";
 const FILES = ["./", "index.html", "style.css", "app.js", "store.js", "meals.js", "firebase-config.js", "manifest.json",
                "logo.jpg", "icon-180.png", "icon-192.png", "icon-512.png"];
 

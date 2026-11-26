@@ -248,6 +248,10 @@ function newView() {
       <form data-form="new-train" class="stack">
         <label>Who is it for?<input name="mom" required maxlength="60" placeholder="Mom's name, e.g. Sarah"></label>
         <label>Your name<input name="organizerName" required maxlength="60" value="${esc(S.me.name || local.get("name", ""))}"></label>
+        <fieldset><legend>Are you the mom?</legend><div class="chips">
+          <label class="chip"><input type="radio" name="iam" value="mom"><span>I'm the mom</span></label>
+          <label class="chip"><input type="radio" name="iam" value="helper" checked><span>I'm organizing for her</span></label></div>
+          <span class="hint">Organizing for her? Invite her from the Details tab so she can run it too.</span></fieldset>
         <div class="row">
           <label>First day<input name="start" type="date" required value="${start}"></label>
           <label>Last day<input name="end" type="date" required value="${addDays(start, 20)}"></label>
@@ -279,6 +283,7 @@ function joinView() {
       <p>Organizers can change the menu, the dates and the drop-off details.</p>
       <form data-form="join" class="stack">
         <label>Your name<input name="name" required maxlength="60" value="${esc(S.me.name || local.get("name", ""))}"></label>
+        <label class="chip"><input type="checkbox" name="isMom"><span>I'm ${esc(d.train.mom)}, the mom</span></label>
         <button class="primary">Join as organizer</button>
       </form>
     </section>`;
@@ -305,6 +310,11 @@ function trainView() {
       </div>
       <button class="share" data-action="share">Share</button>
     </header>
+    ${(S.data.notices || []).map((n) => {
+      const [day, slot] = n.key.split("_");
+      return `<div class="banner notice" role="status"><span>💛 <strong>${esc(n.by)}${n.byMom ? " (mom)" : ""}</strong> removed your ${esc(longDay(day))} ${slotLabel(slot).toLowerCase()}: ${esc(n.dishName)}.</span>
+        ${n.message ? `<em>“${esc(n.message)}”</em>` : ""}<button class="small" data-action="dismiss-notice" data-id="${esc(n.id)}">Got it</button></div>`;
+    }).join("")}
     <nav class="tabs">${tabLink("calendar", "Calendar")}${tabLink("menu", `Menu <span class="count">${d.dishes.length}</span>`)}${tabLink("details", "Details")}</nav>
     <main>${tab === "menu" ? menuTab() : tab === "details" ? detailsTab() : calendarTab()}</main>`;
 }
@@ -462,10 +472,11 @@ function detailsTab() {
     ${prefsSummary(t.prefs).length ? `<section class="card"><h2>Diet and allergies</h2><p>${prefsSummary(t.prefs).map((p) => `<span class="tag">${esc(p)}</span>`).join(" ")}</p></section>` : ""}
     <section class="card">
       <h2>Organizers</h2>
-      <ul class="plain">${organizers.map((o) => `<li>${esc(o.name || "Organizer")}${o.uid === t.ownerUid ? ' <span class="muted small">started the train</span>' : ""}
-        ${org && o.uid !== t.ownerUid && o.uid !== S.me.uid ? ` <button class="link" data-action="remove-organizer" data-uid="${esc(o.uid)}">Remove</button>` : ""}</li>`).join("")}</ul>
+      <ul class="plain">${[...organizers].sort((a, b) => b.mom - a.mom).map((o) => `<li>${esc(o.name || "Organizer")}${o.mom ? ' <span class="badge mom">Mom</span>' : ""}${o.uid === t.ownerUid ? ' <span class="muted small">started the train</span>' : ""}
+        ${org && o.uid !== t.ownerUid && o.uid !== S.me.uid ? ` <button class="link" data-action="remove-organizer" data-uid="${esc(o.uid)}">Remove</button>` : ""}
+        ${o.uid === S.me?.uid ? ` <button class="link" data-action="set-mom" data-mom="${o.mom ? "" : "1"}">${o.mom ? "I'm not the mom" : `I'm ${esc(t.mom)}, the mom`}</button>` : ""}</li>`).join("")}</ul>
       ${org ? `<div class="actions"><button data-action="invite">Invite an organizer</button></div>
-        <p class="muted small">Send the invite to mom or a close friend so they can edit the menu too. Helpers only need the regular Share link.</p>` : ""}
+        <p class="muted small">Send the invite to mom (she can mark herself as mom when she joins) or a close friend so they can run it too. Helpers only need the regular Share link.</p>` : ""}
     </section>
     ${org ? `<section class="card">
       <div class="prefs-head"><h2>Dates and meals</h2><button class="small" data-action="edit-schedule">Edit</button></div>
@@ -508,7 +519,11 @@ function signupSheet(key) {
   // Someone else's sign-up: organizers can see and remove it.
   if (su && !mine) {
     return openSheet("signup", `${head}<p><strong>${esc(su.name)}</strong> is bringing ${esc(su.dishName)}.</p>${su.note ? `<p class="notes">${esc(su.note)}</p>` : ""}
-      <div class="actions"><button class="danger-btn" data-action="cancel-signup" data-key="${key}">Remove this sign-up</button></div>`);
+      <form data-form="remove-signup" data-key="${key}" class="stack">
+        <label>Message for ${esc(su.name)} (optional)<textarea name="message" maxlength="500" rows="2" placeholder="e.g. We have plenty of food that night. Thank you so much for offering!"></textarea>
+          <span class="hint">They'll see it the next time they open the food train.</span></label>
+        <div class="actions"><button class="danger-btn primary">Remove sign-up</button></div>
+      </form>`);
   }
   const serve = serveFor(t, key);
   const frozenOk = serve !== "ready";
@@ -669,6 +684,8 @@ const actions = {
   },
   "close-slot": async (el) => { await setClosed((c) => c.add(el.dataset.key)); if (sheet.open) sheet.close(); },
   "reopen-slot": (el) => setClosed((c) => c.delete(el.dataset.key)),
+  "dismiss-notice": (el) => store.dismissNotice(id(), el.dataset.id),
+  "set-mom": (el) => store.setMom(id(), !!el.dataset.mom),
   "cycle-serve": async (el) => {
     const t = S.data.train, key = el.dataset.key;
     const order = SERVE.map((x) => x.id);
@@ -788,7 +805,7 @@ const forms = {
     validDates(fd.get("start"), fd.get("end"));
     local.set("name", fd.get("organizerName").trim());
     const trainId = await store.createTrain({
-      mom: fd.get("mom").trim(), organizerName: fd.get("organizerName").trim(),
+      mom: fd.get("mom").trim(), organizerName: fd.get("organizerName").trim(), organizerMom: fd.get("iam") === "mom",
       start: fd.get("start"), end: fd.get("end"),
       slots: Object.fromEntries(SLOTS.map((s) => [s.id, slots.includes(s.id)])),
       serve: fd.get("serve") || "ready", serveOverrides: {},
@@ -798,10 +815,17 @@ const forms = {
     S.justCreated = trainId;   // ask for her preferences once the train has loaded
     go(`#/t/${trainId}/menu`);
   },
+  "remove-signup": async (f) => {
+    const su = S.data.signups.find((s) => s.id === f.dataset.key);
+    const me = S.data.organizers.find((o) => o.uid === S.me.uid);
+    await store.removeSignup(id(), f.dataset.key, { by: me?.name || S.me.name || "An organizer", byMom: !!me?.mom, message: f.message.value.trim() });
+    sheet.close();
+    toast(`Removed. ${su?.name || "They"} will see your note next time they open it.`);
+  },
   join: async (f) => {
     const name = f.name.value.trim();
     local.set("name", name);
-    await store.joinOrganizers(id(), S.route.key, name);
+    await store.joinOrganizers(id(), S.route.key, name, f.isMom.checked);
     toast("You're an organizer now");
     go(`#/t/${id()}/menu`);
   },

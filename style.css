@@ -254,3 +254,9 @@ button.serve-tag { border-color: var(--line); cursor: pointer; }
 @media (prefers-color-scheme: dark) { .banner.serve-frozen { background: #22313d; color: #cfe3f2; } }
 .tag.freezes { background: #e3eef7; color: #1f3d55; }
 .chip input[type=radio] + span::before { border-radius: 50%; }
+
+.badge.mom { background: var(--clay); color: #fff; }
+.banner.notice { background: var(--clay-soft); display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.banner.notice em { flex-basis: 100%; }
+.banner.notice button { margin-left: auto; }
+button.danger-btn.primary { background: var(--danger); border-color: var(--danger); color: #fff; }

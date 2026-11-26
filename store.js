@@ -7,7 +7,8 @@
 //                               address, notes, household, prefs: {diet, goals, avoid}, closed: [day or day_slot], created }
 //   trains/{id}/dishes/{id}   { name, desc, slots: [slot], libraryId?, goals?, created }
 //   trains/{id}/signups/{day_slot}  { uid, name, dishId, dishName, note, created }   one helper per meal
-//   trains/{id}/organizers/{uid}    { name, key? }   can change the train; mom is the first
+//   trains/{id}/organizers/{uid}    { name, mom? }   can change the train; mom: true marks the mom
+//   trains/{id}/notices/{id}        { uid, key, dishName, by, byMom, message, created }   "your meal was removed", for that helper
 //   trains/{id}/private/invite      { key }   the co-organizer invite secret, organizers only
 //   trains/{id}/joins/{uid}         { key }   the key a co-organizer joined with (checked by the rules)
 //   users/{uid}               { trains: [id] }   trains you organize, for any device
@@ -67,8 +68,9 @@ function demoStore() {
       const id = randomId();
       write((db) => {
         db.trains[id] = { ...data, ownerUid: me.uid, created: Date.now(), dishes: {}, signups: {},
-          organizers: { [me.uid]: { name: data.organizerName || me.name || "" } }, private: { key: randomId(12) } };
-        delete db.trains[id].organizerName;
+          organizers: { [me.uid]: { name: data.organizerName || me.name || "", ...(data.organizerMom ? { mom: true } : {}) } },
+          notices: {}, private: { key: randomId(12) } };
+        delete db.trains[id].organizerName; delete db.trains[id].organizerMom;
         (db.users[me.uid] ||= { trains: [] }).trains.push(id);
       });
       return id;
@@ -77,10 +79,11 @@ function demoStore() {
       const send = () => {
         const t = read().trains[id];
         if (!t) return cb({ missing: true });
-        const { dishes, signups, organizers, private: _, ...info } = t;
+        const { dishes, signups, organizers, notices = {}, private: _, ...info } = t;
         cb({ train: info, dishes: Object.entries(dishes).map(([k, v]) => ({ id: k, ...v })),
           signups: Object.entries(signups).map(([k, v]) => ({ id: k, ...v })),
-          organizers: Object.entries(organizers).map(([k, v]) => ({ uid: k, name: v.name })) });
+          organizers: Object.entries(organizers).map(([k, v]) => ({ uid: k, name: v.name, mom: !!v.mom })),
+          notices: Object.entries(notices).filter(([, v]) => v.uid === me?.uid).map(([k, v]) => ({ id: k, ...v })) });
       };
       listeners.add(send);
       send();
@@ -109,13 +112,25 @@ function demoStore() {
         delete t.signups[key];
       });
     },
+    // An organizer removes someone's sign-up and leaves them a note.
+    async removeSignup(id, key, notice) {
+      write((db) => {
+        mustOrg(db, id);
+        const t = train(db, id), s = t.signups[key];
+        if (!s) return;
+        if (s.uid !== me.uid) (t.notices ||= {})[randomId()] = { ...notice, uid: s.uid, key, dishName: s.dishName, created: Date.now() };
+        delete t.signups[key];
+      });
+    },
+    async dismissNotice(id, noticeId) { write((db) => { delete train(db, id).notices?.[noticeId]; }); },
+    async setMom(id, mom) { write((db) => { mustOrg(db, id); const o = train(db, id).organizers[me.uid]; if (mom) o.mom = true; else delete o.mom; }); },
     async inviteKey(id) { const db = read(); mustOrg(db, id); return train(db, id).private.key; },
-    async joinOrganizers(id, key, name) {
+    async joinOrganizers(id, key, name, mom) {
       write((db) => {
         const t = train(db, id);
         if (!me || me.anon) throw new Error("Sign in first.");
         if (t.private.key !== key) throw new Error("This invite link isn't valid any more. Ask for a new one.");
-        t.organizers[me.uid] = { name: name || me.name || "" };
+        t.organizers[me.uid] = { name: name || me.name || "", ...(mom ? { mom: true } : {}) };
         const u = (db.users[me.uid] ||= { trains: [] });
         if (!u.trains.includes(id)) u.trains.push(id);
       });
@@ -145,7 +160,7 @@ async function liveStore() {
   const app = initializeApp(firebaseConfig);
   const auth = A.getAuth(app);
   const db = F.getFirestore(app);
-  const { doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, runTransaction, writeBatch, arrayUnion, arrayRemove } = F;
+  const { doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, runTransaction, writeBatch, arrayUnion, arrayRemove, query, where } = F;
 
   let me = null;
   const authListeners = new Set();
@@ -202,15 +217,15 @@ async function liveStore() {
 
     createTrain: wrap(async (data) => {
       const id = doc(collection(db, "trains")).id;
-      const { organizerName, ...info } = data;
+      const { organizerName, organizerMom, ...info } = data;
       await setDoc(T(id), { ...info, ownerUid: me.uid, created: Date.now() });
-      await setDoc(T(id, "organizers", me.uid), { name: organizerName || me.name || "" });
+      await setDoc(T(id, "organizers", me.uid), { name: organizerName || me.name || "", ...(organizerMom ? { mom: true } : {}) });
       await setDoc(T(id, "private", "invite"), { key: randomId(12) });
       await setDoc(doc(db, "users", me.uid), { trains: arrayUnion(id) }, { merge: true });
       return id;
     }),
     watch(id, cb) {
-      const state = { train: null, dishes: [], signups: [], organizers: [] };
+      const state = { train: null, dishes: [], signups: [], organizers: [], notices: [] };
       const have = new Set();
       let gone = false;   // once the train is deleted, later updates to its lists mustn't bring it back on screen
       const send = (part) => { have.add(part); if (gone) cb({ missing: true }); else if (have.size === 4) cb({ ...state }); };
@@ -221,7 +236,10 @@ async function liveStore() {
         onSnapshot(T(id), (s) => { gone = !s.exists(); if (gone) return cb({ missing: true }); state.train = s.data(); send("train"); }, fail),
         list("dishes", "dishes", (d) => ({ id: d.id, ...d.data() })),
         list("signups", "signups", (d) => ({ id: d.id, ...d.data() })),
-        list("organizers", "organizers", (d) => ({ uid: d.id, name: d.data().name })),
+        list("organizers", "organizers", (d) => ({ uid: d.id, name: d.data().name, mom: !!d.data().mom })),
+        // Notes for this helper about meals an organizer removed (the rules only let them read their own).
+        ...(me ? [onSnapshot(query(collection(db, "trains", id, "notices"), where("uid", "==", me.uid)),
+          (s) => { state.notices = s.docs.map((d) => ({ id: d.id, ...d.data() })); if (have.size === 4 && !gone) cb({ ...state }); }, () => {})] : []),
       ];
       return () => unsubs.forEach((u) => u());
     },
@@ -240,12 +258,23 @@ async function liveStore() {
       tx.set(ref, { ...data, uid: me.uid, created: had.exists() ? had.data().created : Date.now() });
     })),
     unclaim: wrap((id, key) => deleteDoc(T(id, "signups", key))),
+    removeSignup: wrap(async (id, key, notice) => {
+      const ref = T(id, "signups", key);
+      const s = await getDoc(ref);
+      if (!s.exists()) return;
+      const batch = writeBatch(db);
+      if (s.data().uid !== me.uid) batch.set(doc(collection(db, "trains", id, "notices")), { ...notice, uid: s.data().uid, key, dishName: s.data().dishName, created: Date.now() });
+      batch.delete(ref);
+      await batch.commit();
+    }),
+    dismissNotice: wrap((id, noticeId) => deleteDoc(T(id, "notices", noticeId))),
+    setMom: wrap((id, mom) => updateDoc(T(id, "organizers", me.uid), { mom: !!mom })),
     inviteKey: wrap(async (id) => (await getDoc(T(id, "private", "invite"))).data().key),
     newInviteKey: wrap((id) => setDoc(T(id, "private", "invite"), { key: randomId(12) })),
-    joinOrganizers: wrap(async (id, key, name) => {
+    joinOrganizers: wrap(async (id, key, name, mom) => {
       const batch = writeBatch(db);
       batch.set(T(id, "joins", me.uid), { key });
-      batch.set(T(id, "organizers", me.uid), { name: name || me.name || "" });
+      batch.set(T(id, "organizers", me.uid), { name: name || me.name || "", ...(mom ? { mom: true } : {}) });
       try { await batch.commit(); }
       catch (e) { if (String(e.code).includes("permission-denied")) throw new Error("This invite link isn't valid any more. Ask for a new one."); throw e; }
       await setDoc(doc(db, "users", me.uid), { trains: arrayUnion(id) }, { merge: true });
@@ -261,7 +290,7 @@ async function liveStore() {
     trainSummary: async (id) => { try { const s = await getDoc(T(id)); return s.exists() ? pick(s.data()) : null; } catch { return null; } },
     // Firestore doesn't delete sub-collections with their train, so clear them first.
     deleteTrain: wrap(async (id) => {
-      for (const name of ["signups", "dishes", "joins", "organizers", "private"]) {
+      for (const name of ["signups", "notices", "dishes", "joins", "organizers", "private"]) {
         const docs = (await getDocs(collection(db, "trains", id, name))).docs;
         const mine = name === "organizers" ? docs.filter((d) => d.id !== me.uid) : docs;
         for (let i = 0; i < mine.length; i += 400) {
