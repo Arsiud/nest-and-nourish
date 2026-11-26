@@ -173,7 +173,7 @@ function homeView() {
   return `
     ${demoNote()}
     <section class="hero">
-      <img src="icon.svg" alt="" class="hero-icon">
+      <img src="logo.jpg" alt="" class="hero-icon">
       <h1>Nest &amp; Nourish</h1>
       <p>Meal trains for new moms, where she picks the menu.</p>
       <button class="primary big" data-action="go-new">Start a food train</button>
@@ -266,7 +266,7 @@ function trainView() {
   return `
     ${demoNote()}
     <header class="train-head">
-      <a href="#/" class="home-link" aria-label="Home"><img src="icon.svg" alt=""></a>
+      <a href="#/" class="home-link" aria-label="Home"><img src="logo.jpg" alt=""></a>
       <div>
         <h1>Food train for ${esc(t.mom)}</h1>
         <p>${esc(shortDate(t.start))} – ${esc(shortDate(t.end))}</p>

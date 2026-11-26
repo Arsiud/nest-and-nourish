@@ -98,7 +98,7 @@ legend { font-weight: 600; font-size: 0.95rem; margin-bottom: 6px; padding: 0; }
 .hero { text-align: center; padding: 28px 0 8px; }
 .hero h1 { font-size: 2.1rem; margin-bottom: 0.1em; }
 .hero p { color: var(--muted); margin-bottom: 20px; font-size: 1.05rem; }
-.hero-icon { width: 84px; height: 84px; border-radius: 20px; }
+.hero-icon { width: 132px; height: 132px; border-radius: 50%; object-fit: cover; box-shadow: 0 4px 16px rgb(0 0 0 / 0.15); }
 .how ol { padding-left: 1.2em; margin: 0; }
 .how li + li { margin-top: 8px; }
 .train-link { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); text-decoration: none; color: var(--ink); }
@@ -129,7 +129,7 @@ legend { font-weight: 600; font-size: 0.95rem; margin-bottom: 6px; padding: 0; }
 .train-head > div { flex: 1; min-width: 0; }
 .train-head h1 { font-size: 1.35rem; margin: 0; }
 .train-head p { margin: 0; color: var(--muted); font-size: 0.9rem; }
-.home-link img { width: 40px; height: 40px; border-radius: 10px; display: block; }
+.home-link img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; display: block; }
 .share { font-weight: 600; }
 .tabs { display: flex; gap: 4px; background: var(--sunk); padding: 4px; border-radius: 999px; margin: 10px 0 4px; position: sticky; top: env(safe-area-inset-top); z-index: 2; }
 .tabs a { flex: 1; text-align: center; padding: 8px 4px; border-radius: 999px; text-decoration: none; color: var(--ink); font-weight: 600; font-size: 0.95rem; }

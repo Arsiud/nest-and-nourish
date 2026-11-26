@@ -1,8 +1,8 @@
 // Caches the app so it opens quickly and offline. Bump VERSION when files change.
 // Other apps share this site (arsiud.github.io), so only caches named "nn-" are ours to clear.
-const VERSION = "nn-v1";
+const VERSION = "nn-v2";
 const FILES = ["./", "index.html", "style.css", "app.js", "store.js", "meals.js", "firebase-config.js", "manifest.json",
-               "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"];
+               "logo.jpg", "icon-180.png", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(FILES)));
