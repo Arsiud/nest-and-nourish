@@ -223,7 +223,7 @@ function newView() {
         <label>Your name<input name="organizerName" required maxlength="60" value="${esc(S.me.name || local.get("name", ""))}"></label>
         <div class="row">
           <label>First day<input name="start" type="date" required value="${start}"></label>
-          <label>Last day<input name="end" type="date" required value="${addDays(start, 13)}"></label>
+          <label>Last day<input name="end" type="date" required value="${addDays(start, 20)}"></label>
         </div>
         <fieldset><legend>Meals she needs</legend>
           ${chips(SLOTS, ["breakfast", "lunch", "dinner"], "slots")}
