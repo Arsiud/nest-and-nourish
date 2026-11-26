@@ -242,3 +242,15 @@ dialog .confirm { font-size: 1.05rem; padding-right: 30px; }
 .tag.quick { background: var(--sage-soft); }
 .tag.flavor { background: var(--warn); color: var(--warn-ink); }
 .dish-option .tag { margin-top: 4px; margin-right: 6px; }
+
+/* Ready to eat / frozen */
+.serve-tag { display: inline-block; margin-top: 3px; padding: 1px 8px; min-height: 0; border-radius: 999px; font-size: 0.75rem; font-weight: 500;
+  background: var(--sunk); border: 1px solid transparent; color: var(--ink); white-space: nowrap; }
+button.serve-tag { border-color: var(--line); cursor: pointer; }
+.serve-tag.changed { border-color: var(--clay); }
+.slot-name .serve-tag { display: table; }
+.banner.serve-frozen { background: #e3eef7; color: #1f3d55; }
+.banner.serve-ready { background: var(--sage-soft); }
+@media (prefers-color-scheme: dark) { .banner.serve-frozen { background: #22313d; color: #cfe3f2; } }
+.tag.freezes { background: #e3eef7; color: #1f3d55; }
+.chip input[type=radio] + span::before { border-radius: 50%; }

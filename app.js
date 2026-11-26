@@ -68,6 +68,18 @@ const signedIn = () => !!S.me && !S.me.anon;
 const trainLink = (id) => `${location.origin}${location.pathname}${location.search}#/t/${id}`;
 const isClosed = (train, key) => (train.closed || []).includes(key) || (train.closed || []).includes(key.split("_")[0]);
 
+// How mom wants meals to arrive: one choice for the whole train, changeable meal by meal.
+const SERVE = [
+  { id: "ready", label: "Ready to eat", icon: "🍽️" },
+  { id: "frozen", label: "Frozen", icon: "🧊" },
+  { id: "either", label: "Either is fine", icon: "🍽️🧊" },
+];
+const serveOf = (id) => SERVE.find((x) => x.id === id) || SERVE[0];
+const serveFor = (train, key) => train.serveOverrides?.[key] || train.serve || "ready";
+function serveChoice(selected, name = "serve") {
+  return `<div class="chips">${SERVE.map((x) => `<label class="chip"><input type="radio" name="${name}" value="${x.id}" ${selected === x.id ? "checked" : ""}><span>${x.icon} ${x.label}</span></label>`).join("")}</div>`;
+}
+
 function chips(items, selected, name) {
   return `<div class="chips">${items.map((it) => `<label class="chip"><input type="checkbox" name="${name}" value="${it.id}" ${selected.includes(it.id) ? "checked" : ""}><span>${esc(it.label)}</span></label>`).join("")}</div>`;
 }
@@ -240,6 +252,10 @@ function newView() {
           <label>First day<input name="start" type="date" required value="${start}"></label>
           <label>Last day<input name="end" type="date" required value="${addDays(start, 20)}"></label>
         </div>
+        <fieldset><legend>How should meals arrive?</legend>
+          ${serveChoice("ready")}
+          <span class="hint">For every meal. She can change single meals on the calendar.</span>
+        </fieldset>
         <fieldset><legend>Meals she needs</legend>
           ${chips(SLOTS, ["breakfast", "lunch", "dinner"], "slots")}
           <span class="hint">Tap one to turn it off for the whole train, like no lunches. Later she can skip single meals or days on the calendar.</span>
@@ -322,13 +338,17 @@ function calendarTab() {
       const su = byKey.get(key);
       const closed = isClosed(t, key);
       if (S.openOnly && (su || closed)) return "";
-      const time = t.times?.[s.id] ? `<span class="time">${esc(t.times[s.id])}</span>` : "";
+      const sv = serveOf(serveFor(t, key));
+      const serveTag = org
+        ? `<button class="serve-tag ${t.serveOverrides?.[key] ? "changed" : ""}" data-action="cycle-serve" data-key="${key}" title="Tap to change how this meal arrives">${sv.icon} ${sv.label}</button>`
+        : `<span class="serve-tag">${sv.icon} ${sv.label}</span>`;
+      const time = (t.times?.[s.id] ? `<span class="time">${esc(t.times[s.id])}</span>` : "") + (closed && !su ? "" : serveTag);
       if (closed && !su) return `<div class="slot closed"><span class="slot-name">${s.label}${time}</span><span class="status">Skipped</span>
         ${org && !dayClosed ? `<button class="small" data-action="reopen-slot" data-key="${key}">Undo</button>` : ""}</div>`;
       if (su) {
         const mine = su.uid === S.me?.uid;
         return `<div class="slot filled ${mine ? "mine" : ""}"><span class="slot-name">${s.label}${time}</span>
-          <span class="status"><strong>${esc(su.name)}</strong> is bringing ${esc(su.dishName)}${su.dropoff && su.dropoff !== day ? `<span class="dropoff">Dropping off early: ${esc(longDay(su.dropoff))}</span>` : ""}${su.note ? `<em>“${esc(su.note)}”</em>` : ""}</span>
+          <span class="status"><strong>${esc(su.name)}</strong> is bringing ${esc(su.dishName)}${su.serve === "frozen" ? " (frozen)" : su.serve === "ready" && serveFor(t, key) === "either" ? " (ready to eat)" : ""}${su.dropoff && su.dropoff !== day ? `<span class="dropoff">Dropping off early: ${esc(longDay(su.dropoff))}</span>` : ""}${su.note ? `<em>“${esc(su.note)}”</em>` : ""}</span>
           ${mine || org ? `<button class="small" data-action="signup" data-key="${key}">${mine ? "Change" : "Manage"}</button>` : ""}</div>`;
       }
       return `<div class="slot open"><span class="slot-name">${s.label}${time}</span><span class="status">Open</span>
@@ -435,6 +455,7 @@ function detailsTab() {
       <div class="prefs-head"><h2>Drop-off</h2>${org ? `<button class="small" data-action="edit-details">Edit</button>` : ""}</div>
       ${t.address ? `<p class="address">${esc(t.address)}<br><a href="${maps}" target="_blank" rel="noopener">Open in Maps</a></p>` : `<p class="muted">No address yet${org ? "" : ". The organizer will add it"}.</p>`}
       ${slots.some((s) => t.times?.[s.id]) ? `<ul class="plain">${slots.filter((s) => t.times?.[s.id]).map((s) => `<li><strong>${s.label}:</strong> ${esc(t.times[s.id])}</li>`).join("")}</ul>` : ""}
+      <p><strong>Meals arrive:</strong> ${serveOf(t.serve).icon} ${serveOf(t.serve).label}${Object.keys(t.serveOverrides || {}).length ? " (some meals differ; see the calendar)" : ""}</p>
       ${t.household ? `<p><strong>Feeding:</strong> ${esc(t.household)}</p>` : ""}
       ${t.notes ? `<p class="notes">${esc(t.notes)}</p>` : ""}
     </section>
@@ -489,18 +510,27 @@ function signupSheet(key) {
     return openSheet("signup", `${head}<p><strong>${esc(su.name)}</strong> is bringing ${esc(su.dishName)}.</p>${su.note ? `<p class="notes">${esc(su.note)}</p>` : ""}
       <div class="actions"><button class="danger-btn" data-action="cancel-signup" data-key="${key}">Remove this sign-up</button></div>`);
   }
-  const options = dishes.filter((d) => d.slots?.includes(slot) || d.id === su?.dishId).sort((a, b) => a.name.localeCompare(b.name));
+  const serve = serveFor(t, key);
+  const frozenOk = serve !== "ready";
+  // Dishes that freeze well come first when she wants it frozen.
+  const freezes = (d) => frozenOk && d.goals?.includes("z");
+  const options = dishes.filter((d) => d.slots?.includes(slot) || d.id === su?.dishId)
+    .sort((a, b) => (serve === "frozen" ? freezes(b) - freezes(a) : 0) || a.name.localeCompare(b.name));
   const used = (id) => signups.filter((s) => s.dishId === id && s.id !== key).length;
   openSheet("signup", `
     <form data-form="signup" data-key="${key}" class="stack">
       ${head}
+      ${serve === "either" ? "" : `<div class="banner serve-${serve}"><strong>${serveOf(serve).icon} Please bring it ${serve === "frozen" ? "frozen" : "ready to eat"}.</strong>
+        ${serve === "frozen" ? "Label it with the dish and reheating directions. Frozen meals can be dropped off early." : ""}</div>`}
       ${dietBanner(t)}
       ${options.length ? `<fieldset class="dish-pick"><legend>Pick a dish from her menu</legend>
         ${options.map((d) => `<label class="dish-option"><input type="radio" name="dish" value="${esc(d.id)}" required ${su?.dishId === d.id ? "checked" : ""}>
-          <span><strong>${esc(d.name)}</strong>${d.desc ? `<span class="desc">${esc(d.desc)}</span>` : ""}${d.goals?.includes("q") ? `<span class="tag quick">Quick to make</span>` : ""}${used(d.id) ? `<span class="used">already coming ${used(d.id)}×</span>` : ""}</span></label>`).join("")}
+          <span><strong>${esc(d.name)}</strong>${d.desc ? `<span class="desc">${esc(d.desc)}</span>` : ""}${d.goals?.includes("q") ? `<span class="tag quick">Quick to make</span>` : ""}${freezes(d) ? `<span class="tag freezes">🧊 Freezes well</span>` : ""}${used(d.id) ? `<span class="used">already coming ${used(d.id)}×</span>` : ""}</span></label>`).join("")}
         </fieldset>` : `<p class="muted">She hasn't added any ${slotLabel(slot).toLowerCase()} dishes yet.${org ? ` <a href="#/t/${esc(S.route.id)}/menu">Add some</a>.` : ""}</p>`}
       ${options.length ? `
         <label>Your name<input name="name" required maxlength="60" autocomplete="name" value="${esc(su?.name || local.get("name", "") || S.me?.name || "")}"></label>
+        ${serve === "either" ? `<fieldset><legend>Ready to eat or frozen? She's happy with either.</legend>
+          <div class="chips">${SERVE.slice(0, 2).map((x) => `<label class="chip"><input type="radio" name="serve" value="${x.id}" required ${(su?.serve || "ready") === x.id ? "checked" : ""}><span>${x.icon} ${x.label}</span></label>`).join("")}</div></fieldset>` : ""}
         <label>Drop-off day<input type="date" name="dropoff" required max="${day}" min="${[today(), su?.dropoff || day].sort()[0]}" value="${su?.dropoff || day}">
           <span class="hint">Can't make it that day, or bringing a freezer meal? Pick an earlier day to drop it off.</span></label>
         <label>Note for her (optional)<textarea name="note" maxlength="500" rows="2" placeholder="e.g. I'll text when I'm on the way">${esc(su?.note || "")}</textarea></label>
@@ -530,6 +560,8 @@ function prefsSheet(thenSuggest) {
   openSheet("prefs", `
     <form data-form="prefs" data-then="${thenSuggest ? "suggest" : ""}" class="stack">
       <h2>Her preferences</h2>
+      <fieldset><legend>How should meals arrive?</legend>${serveChoice(S.data.train.serve || "ready")}
+        <span class="hint">For every meal. Change a single meal by tapping its 🍽️ / 🧊 tag on the calendar.</span></fieldset>
       <fieldset><legend>Diet and allergies</legend>${chips(DIETS, p.diet || [], "diet")}</fieldset>
       <label>Other foods to avoid<input name="avoid" maxlength="200" value="${esc(p.avoid || "")}" placeholder="e.g. onions, mushrooms, spicy"></label>
       <fieldset><legend>Flavors she loves</legend>${chips(FLAVORS, p.flavors || [], "flavors")}</fieldset>
@@ -637,6 +669,14 @@ const actions = {
   },
   "close-slot": async (el) => { await setClosed((c) => c.add(el.dataset.key)); if (sheet.open) sheet.close(); },
   "reopen-slot": (el) => setClosed((c) => c.delete(el.dataset.key)),
+  "cycle-serve": async (el) => {
+    const t = S.data.train, key = el.dataset.key;
+    const order = SERVE.map((x) => x.id);
+    const next = order[(order.indexOf(serveFor(t, key)) + 1) % order.length];
+    const overrides = { ...(t.serveOverrides || {}) };
+    if (next === (t.serve || "ready")) delete overrides[key]; else overrides[key] = next;
+    await store.updateTrain(id(), { serveOverrides: overrides });
+  },
   "toggle-day": (el) => setClosed((c) => {
     const day = el.dataset.day;
     if (c.has(day)) c.delete(day);
@@ -751,6 +791,7 @@ const forms = {
       mom: fd.get("mom").trim(), organizerName: fd.get("organizerName").trim(),
       start: fd.get("start"), end: fd.get("end"),
       slots: Object.fromEntries(SLOTS.map((s) => [s.id, slots.includes(s.id)])),
+      serve: fd.get("serve") || "ready", serveOverrides: {},
       times: {}, address: "", notes: "", household: "", prefs: { diet: [], goals: [], avoid: "" }, closed: [],
     });
     S.myTrains = null;
@@ -772,7 +813,9 @@ const forms = {
     const day = f.dataset.key.split("_")[0];
     const dropoff = f.dropoff.value || day;
     if (dropoff > day) throw new Error("The drop-off day can't be after the meal.");
-    await store.claim(id(), f.dataset.key, { name, dishId: dish.id, dishName: dish.name, note: f.note.value.trim(), dropoff });
+    const wanted = serveFor(S.data.train, f.dataset.key);
+    const serve = wanted === "either" ? f.serve.value : wanted;
+    await store.claim(id(), f.dataset.key, { name, dishId: dish.id, dishName: dish.name, note: f.note.value.trim(), dropoff, serve });
     sheet.close();
     toast(was ? "Saved" : `Thank you, ${name}! You're on the calendar.`);
   },
@@ -790,7 +833,7 @@ const forms = {
   prefs: async (f) => {
     const fd = new FormData(f);
     const prefs = { diet: fd.getAll("diet"), flavors: fd.getAll("flavors"), goals: fd.getAll("goals"), avoid: fd.get("avoid").trim() };
-    await store.updateTrain(id(), { prefs });
+    await store.updateTrain(id(), { prefs, serve: fd.get("serve") || "ready" });
     if (f.dataset.then === "suggest") { S.sheet = null; sheet.close(); S.data.train.prefs = prefs; renderSuggest(); }
     else { sheet.close(); toast("Preferences saved"); }
   },
