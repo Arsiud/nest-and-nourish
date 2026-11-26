@@ -65,7 +65,7 @@ const slotLabel = (id) => SLOTS.find((s) => s.id === id)?.label || id;
 const activeSlots = (train) => SLOTS.filter((s) => train.slots?.[s.id]);
 const isOrganizer = () => !!S.me && !!S.data?.organizers?.some((o) => o.uid === S.me.uid);
 const signedIn = () => !!S.me && !S.me.anon;
-const trainLink = (id) => `${location.origin}${location.pathname}#/t/${id}`;
+const trainLink = (id) => `${location.origin}${location.pathname}${location.search}#/t/${id}`;
 const isClosed = (train, key) => (train.closed || []).includes(key) || (train.closed || []).includes(key.split("_")[0]);
 
 function chips(items, selected, name) {
