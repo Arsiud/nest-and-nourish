@@ -143,9 +143,9 @@ async function loadMyTrains() {
 }
 
 store.onAuth((me) => {
-  const was = S.me?.uid;
+  const was = S.me;
   S.me = me;
-  if (S.route && was !== me?.uid) { if (S.route.view === "home") loadMyTrains(); render(); }
+  if (S.route && (was?.uid !== me?.uid || was?.anon !== me?.anon || was?.name !== me?.name)) { if (S.route.view === "home") loadMyTrains(); render(); }
 });
 
 // ---------- rendering ----------
@@ -153,6 +153,20 @@ store.onAuth((me) => {
 function render() {
   const r = S.route;
   if (!r) return;
+  // Keep what's been typed or ticked when a live update redraws the page mid-entry.
+  const typed = [...app.querySelectorAll("form[data-form] [name]")]
+    .filter((el) => (el.type === "checkbox" || el.type === "radio") ? el.checked !== el.defaultChecked : el.value !== el.defaultValue)
+    .map((el) => [el.form.dataset.form, el.name, el.type === "checkbox" || el.type === "radio" ? el.value : null, el.checked, el.value]);
+  const focused = document.activeElement?.closest?.("#app form[data-form]") && [document.activeElement.form.dataset.form, document.activeElement.name];
+  renderPage(r);
+  for (const [form, name, choice, checked, value] of typed) {
+    const el = app.querySelector(`form[data-form="${form}"] [name="${name}"]${choice != null ? `[value="${CSS.escape(choice)}"]` : ""}`);
+    if (!el) continue;
+    if (choice != null) el.checked = checked; else el.value = value;
+  }
+  if (focused) app.querySelector(`form[data-form="${focused[0]}"] [name="${focused[1]}"]`)?.focus();
+}
+function renderPage(r) {
   document.body.dataset.view = r.view;
   if (r.view === "home") app.innerHTML = homeView();
   else if (r.view === "new") app.innerHTML = signedIn() ? newView() : signInView("Organizers sign in, so only you and the people you invite can change the menu.");

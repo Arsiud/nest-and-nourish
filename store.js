@@ -177,15 +177,17 @@ async function liveStore() {
         await A.signInWithCredential(auth, A.GoogleAuthProvider.credentialFromError(e));
       }
     } else await A.signInWithPopup(auth, provider);
-    me = toMe(auth.currentUser);
+    signedIn();
   }
+  // Upgrading an anonymous helper keeps the same account, so Firebase announces nothing; tell the app ourselves.
+  function signedIn() { me = toMe(auth.currentUser); authListeners.forEach((l) => l(me)); }
   async function email(address, password, create, name) {
     if (create) {
       if (auth.currentUser?.isAnonymous) await A.linkWithCredential(auth.currentUser, A.EmailAuthProvider.credential(address, password));
       else await A.createUserWithEmailAndPassword(auth, address, password);
       if (name) await A.updateProfile(auth.currentUser, { displayName: name });
     } else await A.signInWithEmailAndPassword(auth, address, password);
-    me = toMe(auth.currentUser);
+    signedIn();
   }
 
   return {
@@ -210,12 +212,13 @@ async function liveStore() {
     watch(id, cb) {
       const state = { train: null, dishes: [], signups: [], organizers: [] };
       const have = new Set();
-      const send = (part) => { have.add(part); if (have.size === 4) cb({ ...state }); };
+      let gone = false;   // once the train is deleted, later updates to its lists mustn't bring it back on screen
+      const send = (part) => { have.add(part); if (gone) cb({ missing: true }); else if (have.size === 4) cb({ ...state }); };
       const fail = (e) => cb({ error: nice(e) });
       const list = (name, part, map) => onSnapshot(collection(db, "trains", id, name),
         (s) => { state[part] = s.docs.map(map); send(part); }, fail);
       const unsubs = [
-        onSnapshot(T(id), (s) => { if (!s.exists()) return cb({ missing: true }); state.train = s.data(); send("train"); }, fail),
+        onSnapshot(T(id), (s) => { gone = !s.exists(); if (gone) return cb({ missing: true }); state.train = s.data(); send("train"); }, fail),
         list("dishes", "dishes", (d) => ({ id: d.id, ...d.data() })),
         list("signups", "signups", (d) => ({ id: d.id, ...d.data() })),
         list("organizers", "organizers", (d) => ({ uid: d.id, name: d.data().name })),
